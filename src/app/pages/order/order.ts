@@ -4,12 +4,13 @@ import { DELIVERY_SIZES, DELIVERY_SPEEDS } from './order.config';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { UpperCasePipe } from '@angular/common';
 import { DeliveryApi } from '../../services/delivery-api';
+import { NgxMaskDirective } from 'ngx-mask';
 
 declare var ymaps: any;
 
 @Component({
   selector: 'app-order',
-  imports: [Header, UpperCasePipe, ReactiveFormsModule],
+  imports: [Header, UpperCasePipe, ReactiveFormsModule, NgxMaskDirective],
   templateUrl: './order.html',
   styleUrl: './order.css',
 })
@@ -35,7 +36,7 @@ export class Order {
     });
     this.orderForm = this.formBuilder.group({
       name: ['', Validators.required],
-      phone: ['', [Validators.required]],
+      phone: ['', [Validators.required, Validators.minLength(18)]],
       comment: ['']
     });
   }
@@ -159,7 +160,3 @@ export class Order {
     });
   }
 }
-
-
-
-
