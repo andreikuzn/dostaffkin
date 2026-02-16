@@ -1,10 +1,11 @@
-import { Component, signal } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { Header } from '../../header/header';
 import { DELIVERY_SIZES, DELIVERY_SPEEDS } from './order.config';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { UpperCasePipe } from '@angular/common';
 import { DeliveryApi } from '../../services/delivery-api';
 import { NgxMaskDirective } from 'ngx-mask';
+import { ToastrService } from 'ngx-toastr';
 
 declare var ymaps: any;
 
@@ -17,6 +18,8 @@ declare var ymaps: any;
 export class Order {
   public readonly sizes = DELIVERY_SIZES;
   public readonly speeds = DELIVERY_SPEEDS;
+
+  toastr = inject(ToastrService);
 
   public map: any;
   private mapRoute: any;
@@ -42,17 +45,57 @@ export class Order {
   }
 
   ngOnInit() {
-    ymaps.ready(() => {
-      this.map = new ymaps.Map('map', {
-        center: [55.751244, 37.618423],
-        zoom: 5,
-        controls: ['zoomControl']
-      });
+  ymaps.ready(() => {
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => this.init(pos.coords.latitude, pos.coords.longitude),
+        (err) => {
+          console.warn('Geolocation error:', err.code, err.message);
 
-      // Подключаем подсказки адресов к полям от яндекса
-      (new ymaps.SuggestView('from')).events.add('select', (event: any) => (this.routeForm.controls['from'].setValue(event.get('item')?.value ?? '')));
-      (new ymaps.SuggestView('to')).events.add('select', (event: any) => (this.routeForm.controls['to'].setValue(event.get('item')?.value ?? '')));
+          if (err.code === 1) {
+            this.toastr.error('Геолокация запрещена в настройках браузера для этого сайта.');
+          } else {
+            this.toastr.error(`Геолокация недоступна: ${err.message}`);
+          }
+
+          this.init(); // fallback — запускаем карту без координат
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 60000
+        }
+      );
+    } else {
+      this.init();
+    }
+  });
+}
+
+  public init(lat: any = null, lon: any = null) {
+    this.map = new ymaps.Map('map', {
+      center: [lat ?? 55.751244, lon ?? 37.618423],
+      zoom: lat && lon ? 15 : 5,
+      controls: ['zoomControl']
     });
+
+    // Обратное геокодирование: определяем ближайший адрес по координатам, подставляем в Откуда и добавляем поинт на карту
+    if (lat != null && lon != null) {
+      ymaps.geocode([lat, lon], { kind: 'house' }).then(
+        (res: any) => {
+          const first = res.geoObjects.get(0);
+          if (first?.getAddressLine) {
+            this.routeForm.controls['from'].setValue(first.getAddressLine());
+            this.map.geoObjects.add(first);
+          }
+        },
+        () => { }
+      );
+    }
+
+    // Подключаем подсказки адресов к полям от яндекса
+    (new ymaps.SuggestView('from')).events.add('select', (event: any) => (this.routeForm.controls['from'].setValue(event.get('item')?.value ?? '')));
+    (new ymaps.SuggestView('to')).events.add('select', (event: any) => (this.routeForm.controls['to'].setValue(event.get('item')?.value ?? '')));
   }
 
   public selectSize(size: string) {
@@ -124,18 +167,18 @@ export class Order {
 
   private failedCalculation() {
     this.calculationResult.set(null);
-    alert('Не удалось построить маршрут. Проверьте адреса и выбранные параметры.');
+    this.toastr.error('Не удалось построить маршрут. Проверьте адреса и выбранные параметры.');
   }
 
   public submitOrder() {
     const calculation = this.calculationResult();
     if (!calculation) {
-      alert('Сначала рассчитайте стоимость, чтобы оформить заявку');
+      this.toastr.error('Сначала рассчитайте стоимость, чтобы оформить заявку');
       return;
     }
 
     if (this.orderForm.invalid) {
-      alert('Введите имя и корректный телефон');
+      this.toastr.error('Введите имя и корректный телефон');
       return;
     }
 
@@ -152,10 +195,11 @@ export class Order {
 
     this.deliveryApi.createDelivery(payload).subscribe((response) => {
       if ('error' in response) {
-        alert(response.error);
+        this.toastr.error(response.error);
         return;
       }
 
+      this.toastr.success('Заявка успешно оформлена!');
       this.orderId.set(response.id);
     });
   }
